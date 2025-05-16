@@ -123,7 +123,7 @@ export default function RankingPage() {
         const n = entries.length;
         
         // Tworzymy tabelę potencjalnych par do porównania
-        let potentialPairs: Array<{
+        const potentialPairs: Array<{
             indexA: number;
             indexB: number;
             score: number; // Miara "wartości informacyjnej" porównania

@@ -1,4 +1,4 @@
-import { Entry } from './Entry'
+import { Entry } from '../Entry'
 
 export const SEMIFINAL_1: Entry[] = [
     {
