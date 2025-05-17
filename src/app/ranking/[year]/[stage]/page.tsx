@@ -396,13 +396,6 @@ export default function RankingPage() {
         return Math.round((comparisonsMade / maxComparisons) * 100);
     };
 
-    // function returning rating change for display
-    const getRatingChange = (entry: Entry): string => {
-        const change = Math.round(entry.score - INITIAL_RATING);
-        if (change > 0) return `+${change}`;
-        return `${change}`;
-    };
-
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
     }
