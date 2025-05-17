@@ -10,20 +10,20 @@ type Entry = {
     countryEmoji: string;
     artist: string;
     title: string;
-    // Pola do algorytmu
+    // fields for algorithm
     id: number;
     score: number;
     comparisons: number;
-    uncertainty: number; // Nowe pole dla algorytmu ELO
+    uncertainty: number; // new field for ELO algorithm
 };
 
 export default function RankingPage() {
-    // Pobieranie parametrów z URL
+    // getting parameters from URL
     const params = useParams();
     const year = params?.year as string;
     const stage = params?.stage as string;
 
-    // Stany komponentu
+    // component states
     const [allEntries, setAllEntries] = useState<Entry[]>([]);
     const [currentComparison, setCurrentComparison] = useState<[Entry, Entry] | null>(null);
     const [rankedEntries, setRankedEntries] = useState<Entry[]>([]);
@@ -32,25 +32,25 @@ export default function RankingPage() {
     const [isComplete, setIsComplete] = useState(false);
     const [comparisonsMade, setComparisonsMade] = useState(0);
 
-    // Macierz wyników dla algorytmu ELO
+    // result matrix for ELO algorithm
     const [resultMatrix, setResultMatrix] = useState<number[][]>([]);
 
-    // Konfiguracja algorytmu ELO
-    const ELO_BASE_K = 32; // Podstawowy współczynnik uczenia
-    const INITIAL_RATING = 1400; // Początkowy rating
-    const INITIAL_UNCERTAINTY = 100; // Początkowa niepewność
-    const MIN_UNCERTAINTY = 20; // Minimalna niepewność po wielu porównaniach
+    // ELO algorithm configuration
+    const ELO_BASE_K = 32; // base learning coefficient
+    const INITIAL_RATING = 1400; // initial rating
+    const INITIAL_UNCERTAINTY = 100; // initial uncertainty
+    const MIN_UNCERTAINTY = 20; // minimum uncertainty after many comparisons
 
-    // Dynamiczne obliczanie maksymalnej liczby porównań na podstawie ilości danych
+    // dynamically calculating maximum number of comparisons based on data amount
     const maxComparisons = useMemo(() => {
         const n = allEntries.length;
         if (n <= 0) return 0;
 
-        // Formuły na podstawie liczby elementów:
-        // - Poniżej 15 elementów: 2.5n porównań (daje dobry balans dla małych zbiorów)
-        // - Między 15 a 30 elementów: 2n porównań (optymalne dla średnich zbiorów)
-        // - Powyżej 30 elementów: 1.8n porównań (dla dużych zbiorów)
-        // - Minimum 10 porównań, maksimum 100 (aby zapewnić sensowne granice)
+        // formulas based on number of elements:
+        // - below 15 elements: 2.5n comparisons (good balance for small sets)
+        // - between 15 and 30 elements: 2n comparisons (optimal for medium sets)
+        // - above 30 elements: 1.8n comparisons (for large sets)
+        // - minimum 10 comparisons, maximum 100 (to ensure sensible limits)
 
         if (n < 15) {
             return Math.min(Math.max(10, Math.round(2.5 * n)), 100);
@@ -61,111 +61,109 @@ export default function RankingPage() {
         }
     }, [allEntries.length]);
 
-    console.log("Parametry URL:", { year, stage });
-
-    // Funkcja obliczająca prawdopodobieństwo wygranej w modelu ELO
+    // function calculating win probability in ELO model
     const calculateExpectedScore = (ratingA: number, ratingB: number): number => {
         return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
     };
 
-    // Funkcja aktualizująca ranking ELO po porównaniu
+    // function updating ELO ranking after comparison
     const updateEloRatings = (entries: Entry[], winner: Entry, loser: Entry): Entry[] => {
         const updatedEntries = [...entries];
-        
-        // Znajdujemy indeksy zwycięzcy i przegranego
+
+        // finding winner and loser indices
         const winnerIndex = entries.findIndex(e => e.id === winner.id);
         const loserIndex = entries.findIndex(e => e.id === loser.id);
-        
+
         if (winnerIndex === -1 || loserIndex === -1) return entries;
-        
-        // Pobieramy aktualne rankingi
+
+        // getting current rankings
         const winnerRating = entries[winnerIndex].score;
         const loserRating = entries[loserIndex].score;
-        
-        // Obliczamy oczekiwane wyniki
+
+        // calculating expected results
         const expectedWinner = calculateExpectedScore(winnerRating, loserRating);
         const expectedLoser = calculateExpectedScore(loserRating, winnerRating);
-        
-        // Określamy dynamiczny współczynnik K na podstawie niepewności i liczby porównań
+
+        // determining dynamic K coefficient based on uncertainty and number of comparisons
         const winnerK = ELO_BASE_K * (entries[winnerIndex].uncertainty / INITIAL_UNCERTAINTY);
         const loserK = ELO_BASE_K * (entries[loserIndex].uncertainty / INITIAL_UNCERTAINTY);
-        
-        // Aktualizujemy rankingi
+
+        // updating rankings
         updatedEntries[winnerIndex] = {
             ...entries[winnerIndex],
             score: winnerRating + winnerK * (1 - expectedWinner),
             comparisons: entries[winnerIndex].comparisons + 1,
-            // Zmniejszamy niepewność po każdym porównaniu, ale nigdy poniżej MIN_UNCERTAINTY
+            // reducing uncertainty after each comparison, but never below MIN_UNCERTAINTY
             uncertainty: Math.max(
-                entries[winnerIndex].uncertainty * 0.95, 
+                entries[winnerIndex].uncertainty * 0.95,
                 MIN_UNCERTAINTY
             )
         };
-        
+
         updatedEntries[loserIndex] = {
             ...entries[loserIndex],
             score: loserRating + loserK * (0 - expectedLoser),
             comparisons: entries[loserIndex].comparisons + 1,
-            // Zmniejszamy niepewność po każdym porównaniu, ale nigdy poniżej MIN_UNCERTAINTY
+            // reducing uncertainty after each comparison, but never below MIN_UNCERTAINTY
             uncertainty: Math.max(
-                entries[loserIndex].uncertainty * 0.95, 
+                entries[loserIndex].uncertainty * 0.95,
                 MIN_UNCERTAINTY
             )
         };
-        
+
         return updatedEntries;
     };
 
-    // Funkcja wybierająca następną parę do porównania - wykorzystuje adaptacyjne próbkowanie
+    // function selecting next pair for comparison - uses adaptive sampling
     const getNextComparison = (entries: Entry[]): [Entry, Entry] | null => {
         if (entries.length < 2) return null;
-        
+
         const n = entries.length;
-        
-        // Tworzymy tabelę potencjalnych par do porównania
+
+        // creating table of potential pairs for comparison
         const potentialPairs: Array<{
             indexA: number;
             indexB: number;
-            score: number; // Miara "wartości informacyjnej" porównania
+            score: number; // measure of "information value" of comparison
         }> = [];
-        
+
         for (let i = 0; i < n; i++) {
             for (let j = i + 1; j < n; j++) {
                 const entryA = entries[i];
                 const entryB = entries[j];
-                
-                // Liczymy całkowitą liczbę porównań tych elementów
+
+                // counting total number of comparisons for these elements
                 const totalComparisons = entryA.comparisons + entryB.comparisons;
-                
-                // Obliczamy różnicę w rankingu
+
+                // calculating ranking difference
                 const ratingDiff = Math.abs(entryA.score - entryB.score);
-                
-                // Obliczamy sumę niepewności obu elementów
+
+                // calculating sum of uncertainty for both elements
                 const totalUncertainty = entryA.uncertainty + entryB.uncertainty;
-                
-                // Obliczamy prawdopodobieństwo wygranej w modelu ELO
+
+                // calculating win probability in ELO model
                 const expectedProb = calculateExpectedScore(entryA.score, entryB.score);
-                
-                // Największą wartość informacyjną mają porównania elementów:
-                // 1. O podobnym rankingu (mała różnica w rankingu)
-                // 2. Z dużą niepewnością (mało porównań)
-                // 3. Z nieoczywistym wynikiem (prawdopodobieństwo bliskie 0.5)
-                
-                // Obliczamy wartość informacyjną porównania (im większa, tym lepiej)
-                // Normalizujemy każdy czynnik do przedziału [0, 1] i ważymy ich wpływ
-                const ratingDiffScore = 1 / (1 + ratingDiff / 200); // Im mniejsza różnica, tym lepiej
-                const uncertaintyScore = totalUncertainty / (2 * INITIAL_UNCERTAINTY); // Im większa niepewność, tym lepiej
-                const probScore = 1 - Math.abs(expectedProb - 0.5) * 2; // Im bliżej 0.5, tym lepiej
-                const comparisonScore = 1 / (1 + totalComparisons); // Im mniej porównań, tym lepiej
-                
-                // Łączny wynik (z wagami)
+
+                // highest information value comes from comparisons of elements:
+                // 1. with similar ranking (small ranking difference)
+                // 2. with high uncertainty (few comparisons)
+                // 3. with non-obvious result (probability close to 0.5)
+
+                // calculating information value of comparison (higher is better)
+                // normalizing each factor to [0, 1] range and weighing their impact
+                const ratingDiffScore = 1 / (1 + ratingDiff / 200); // smaller difference is better
+                const uncertaintyScore = totalUncertainty / (2 * INITIAL_UNCERTAINTY); // higher uncertainty is better
+                const probScore = 1 - Math.abs(expectedProb - 0.5) * 2; // closer to 0.5 is better
+                const comparisonScore = 1 / (1 + totalComparisons); // fewer comparisons is better
+
+                // combined score (with weights)
                 const informationValue = (
-                    ratingDiffScore * 0.3 + 
-                    uncertaintyScore * 0.3 + 
-                    probScore * 0.2 + 
+                    ratingDiffScore * 0.3 +
+                    uncertaintyScore * 0.3 +
+                    probScore * 0.2 +
                     comparisonScore * 0.2
                 );
-                
+
                 potentialPairs.push({
                     indexA: i,
                     indexB: j,
@@ -173,78 +171,118 @@ export default function RankingPage() {
                 });
             }
         }
-        
-        // Sortujemy pary według wartości informacyjnej (malejąco)
+
+        // sorting pairs by information value (descending)
         potentialPairs.sort((a, b) => b.score - a.score);
-        
-        // Wybieramy najlepszą parę (z niewielkim elementem losowości)
-        // Wybieramy z top 20% par lub z top 3 par (cokolwiek jest większe)
+
+        // selecting the best pair (with small element of randomness)
+        // choosing from top 20% pairs or from top 3 pairs (whichever is larger)
         const topPairsCount = Math.max(3, Math.floor(potentialPairs.length * 0.2));
         const randomIndex = Math.floor(Math.random() * Math.min(topPairsCount, potentialPairs.length));
         const selectedPair = potentialPairs[randomIndex];
-        
+
         if (!selectedPair) {
-            // Fallback - losowa para
+            // fallback - random pair
             const i = Math.floor(Math.random() * n);
             let j;
             do {
                 j = Math.floor(Math.random() * n);
             } while (i === j);
-            
+
             return [entries[i], entries[j]];
         }
-        
+
         return [entries[selectedPair.indexA], entries[selectedPair.indexB]];
     };
 
     useEffect(() => {
+        // function for sending basic analytics data
+        const sendPageViewAnalytics = async () => {
+            try {
+                // checking if at least 30 minutes have passed since last record
+                const storageKey = 'eurovision-analytics-last-sent';
+                const lastSentTime = localStorage.getItem(storageKey);
+                const currentTime = new Date().getTime();
+
+                // if we have a saved time of last data send
+                if (lastSentTime) {
+                    const lastSentTimestamp = parseInt(lastSentTime, 10);
+                    const timeDiffMinutes = (currentTime - lastSentTimestamp) / (1000 * 60);
+
+                    // if 30 minutes haven't passed yet, skip sending
+                    if (timeDiffMinutes < 30) {
+                        return;
+                    }
+                }
+
+                // URL of Google Apps Script
+                const scriptUrl = 'https://script.google.com/macros/s/AKfycbzwROpGhq76lpnR_Dk_bI4lJTWOMxyMVPg2mu6gfUKMeUphOuKNhXtvic7XxyVi5pJR/exec';
+
+                // basic visit data
+                const data = {
+                    url: window.location.href,
+                    timestamp: new Date().toISOString(),
+                    year: year || 'unknown',
+                    stage: stage || 'unknown',
+                    userAgent: navigator.userAgent,
+                    timeSinceLastVisit: lastSentTime ? `${Math.round((currentTime - parseInt(lastSentTime, 10)) / (1000 * 60))} min` : 'first-visit'
+                };
+
+                // sending data to Google Sheets
+                fetch(scriptUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                // saving current time as last sent time
+                localStorage.setItem(storageKey, currentTime.toString());
+
+            } catch (error) {
+                console.error('Error while sending data:', error);
+            }
+        };
+
+        // function for loading data
         const loadEntries = async () => {
-            // Sprawdź, czy parametry są dostępne
+            // check if parameters are available
             if (!year || !stage) {
-                console.error("Brak parametrów year lub stage");
-                setError("Brak wymaganych parametrów");
+                setError("Missing required parameters");
                 setIsLoading(false);
                 return;
             }
 
-            console.log("Rozpoczynam ładowanie danych dla:", year, stage);
             setIsLoading(true);
 
             try {
-                // Dynamicznie importujemy odpowiedni plik z danymi
+                // dynamically importing appropriate data file
                 let stageData: Omit<Entry, 'id' | 'score' | 'comparisons' | 'uncertainty'>[] = [];
 
                 try {
-                    console.log(`Próbuję zaimportować plik: @/data/years/${year}.ts`);
                     const yearModule = await import(`@/data/years/${year}.ts`);
-                    console.log("Zaimportowano moduł, dostępne eksporty:", Object.keys(yearModule));
 
-                    // Wybieramy odpowiednie dane na podstawie etapu konkursu
+                    // selecting appropriate data based on contest stage
                     if (stage === "semi1" && yearModule.SEMIFINAL_1) {
-                        console.log("Znaleziono dane dla półfinału 1");
                         stageData = yearModule.SEMIFINAL_1;
                     } else if (stage === "semi2" && yearModule.SEMIFINAL_2) {
-                        console.log("Znaleziono dane dla półfinału 2");
                         stageData = yearModule.SEMIFINAL_2;
                     } else if (stage === "final" && yearModule.FINAL) {
-                        console.log("Znaleziono dane dla finału");
                         stageData = yearModule.FINAL;
                     } else {
-                        console.warn(`Nie znaleziono danych dla etapu: ${stage}`);
-                        throw new Error(`Brak danych dla etapu ${stage}`);
+                        throw new Error(`No data for stage ${stage}`);
                     }
-
-                    console.log("Pobrane dane, liczba elementów:", stageData.length);
 
                     if (stageData.length === 0) {
-                        throw new Error(`Brak danych dla roku ${year} i etapu ${stage}`);
+                        throw new Error(`No data for year ${year} and stage ${stage}`);
                     }
                 } catch (importError) {
-                    console.error("Błąd importu:", importError);
-                    throw new Error(`Nie znaleziono danych dla roku ${year}: ${(importError as Error).message}`);
+                    throw new Error(`Data not found for year ${year}: ${(importError as Error).message}`);
                 }
 
-                // Inicjalizujemy dane z ID i początkowym ratingiem ELO
+                // data initialization
                 const initializedEntries = stageData.map((entry, index) => ({
                     ...entry,
                     id: index,
@@ -255,59 +293,62 @@ export default function RankingPage() {
 
                 setAllEntries(initializedEntries);
 
-                // Inicjalizujemy macierz wyników
+                // initializing results matrix
                 const n = initializedEntries.length;
                 const initialResultMatrix = Array(n).fill(0).map(() => Array(n).fill(0));
                 setResultMatrix(initialResultMatrix);
 
-                // Wybieramy pierwsze porównanie
+                // selecting first comparison
                 const firstComparison = getNextComparison(initializedEntries);
                 setCurrentComparison(firstComparison);
                 setComparisonsMade(0);
 
                 setError(null);
             } catch (err) {
-                console.error("Błąd podczas ładowania danych:", err);
-                setError(`Nie udało się załadować danych: ${(err as Error).message}`);
+                setError(`Failed to load data: ${(err as Error).message}`);
             } finally {
                 setIsLoading(false);
             }
         };
 
+        // first sending analytics data, then loading data
+        // sending data doesn't block app loading
+        sendPageViewAnalytics();
         loadEntries();
+
     }, [year, stage]);
 
     const handleSelect = (winner: Entry, loser: Entry) => {
         if (!currentComparison) return;
 
-        // Aktualizujemy macierz wyników
+        // updating results matrix
         const newResultMatrix = [...resultMatrix];
         newResultMatrix[winner.id][loser.id] += 1;
         setResultMatrix(newResultMatrix);
 
-        // Aktualizujemy rankingi ELO
+        // updating ELO rankings
         const updatedEntries = updateEloRatings(allEntries, winner, loser);
         setAllEntries(updatedEntries);
 
-        // Zwiększamy licznik porównań
+        // increasing comparison counter
         const nextComparisonCount = comparisonsMade + 1;
         setComparisonsMade(nextComparisonCount);
 
-        // Sprawdzamy, czy osiągnęliśmy maksymalną liczbę porównań
+        // checking if we've reached maximum number of comparisons
         if (nextComparisonCount >= maxComparisons) {
-            // Ranking jest ukończony
+            // ranking is complete
             setIsComplete(true);
             setCurrentComparison(null);
 
-            // Obliczamy ostateczny ranking (sortowanie po score - ratingu ELO)
+            // calculating final ranking (sorting by score - ELO rating)
             const ranked = [...updatedEntries].sort((a, b) => b.score - a.score);
             setRankedEntries(ranked);
         } else {
-            // Wybieramy następne porównanie
+            // selecting next comparison
             const nextComparison = getNextComparison(updatedEntries);
             setCurrentComparison(nextComparison);
 
-            // Jeśli nie ma więcej możliwych porównań, kończymy ranking
+            // if there are no more possible comparisons, we end the ranking
             if (!nextComparison) {
                 setIsComplete(true);
                 const ranked = [...updatedEntries].sort((a, b) => b.score - a.score);
@@ -317,14 +358,14 @@ export default function RankingPage() {
     };
 
     const handleReset = () => {
-        // Resetujemy stan
+        // resetting state
         const n = allEntries.length;
 
-        // Resetujemy macierz wyników
+        // resetting results matrix
         const initialResultMatrix = Array(n).fill(0).map(() => Array(n).fill(0));
         setResultMatrix(initialResultMatrix);
 
-        // Resetujemy elementy
+        // resetting elements
         const resetEntries = allEntries.map(entry => ({
             ...entry,
             score: INITIAL_RATING,
@@ -334,7 +375,7 @@ export default function RankingPage() {
 
         setAllEntries(resetEntries);
 
-        // Wybieramy pierwsze porównanie
+        // selecting first comparison
         const firstComparison = getNextComparison(resetEntries);
         setCurrentComparison(firstComparison);
         setComparisonsMade(0);
@@ -343,9 +384,9 @@ export default function RankingPage() {
 
     const getStageName = () => {
         switch (stage) {
-            case "semi1": return "Półfinał 1";
-            case "semi2": return "Półfinał 2";
-            case "final": return "Finał";
+            case "semi1": return "Semifinal 1";
+            case "semi2": return "Semifinal 2";
+            case "final": return "Final";
             default: return "Ranking";
         }
     };
@@ -355,7 +396,7 @@ export default function RankingPage() {
         return Math.round((comparisonsMade / maxComparisons) * 100);
     };
 
-    // Funkcja zwracająca zmianę rankingu dla wyświetlenia
+    // function returning rating change for display
     const getRatingChange = (entry: Entry): string => {
         const change = Math.round(entry.score - INITIAL_RATING);
         if (change > 0) return `+${change}`;
@@ -363,19 +404,19 @@ export default function RankingPage() {
     };
 
     if (isLoading) {
-        return <div className="flex items-center justify-center min-h-screen">Ładowanie...</div>;
+        return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
     }
 
     if (error) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen px-4">
-                <h1 className="text-2xl font-bold mb-4">Błąd</h1>
+                <h1 className="text-2xl font-bold mb-4">Error</h1>
                 <p>{error}</p>
                 <Link
                     href="/"
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 >
-                    Powrót do strony głównej
+                    Return to homepage
                 </Link>
             </div>
         );
@@ -393,14 +434,14 @@ export default function RankingPage() {
                             onClick={handleReset}
                             className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 dark:border-gray-600"
                         >
-                            Zacznij od nowa
+                            Start over
                         </button>
                     )}
                     <Link
                         href="/"
                         className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 dark:border-gray-600"
                     >
-                        Powrót
+                        Back
                     </Link>
                 </div>
             </div>
@@ -408,10 +449,10 @@ export default function RankingPage() {
             {!isComplete && currentComparison ? (
                 <div className="mb-8">
                     <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
-                        <h2 className="text-xl font-semibold mb-4 text-center">Który utwór wolisz?</h2>
+                        <h2 className="text-xl font-semibold mb-4 text-center">Which song do you prefer?</h2>
 
                         <div className="flex flex-col md:flex-row gap-4">
-                            {/* Lewa opcja */}
+                            {/* Left option */}
                             <button
                                 onClick={() => handleSelect(currentComparison[0], currentComparison[1])}
                                 className="flex-1 border rounded-lg p-6 hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors flex flex-col items-center text-center"
@@ -426,7 +467,7 @@ export default function RankingPage() {
                                 <span className="text-2xl font-bold">VS</span>
                             </div>
 
-                            {/* Prawa opcja */}
+                            {/* Right option */}
                             <button
                                 onClick={() => handleSelect(currentComparison[1], currentComparison[0])}
                                 className="flex-1 border rounded-lg p-6 hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors flex flex-col items-center text-center"
@@ -439,7 +480,7 @@ export default function RankingPage() {
                         </div>
                     </div>
 
-                    {/* Pasek postępu */}
+                    {/* Progress bar */}
                     <div className="mt-6">
                         <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mb-2">
                             <div
@@ -448,15 +489,15 @@ export default function RankingPage() {
                             ></div>
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-                            Postęp: {comparisonsMade} z {maxComparisons} porównań ({getProgress()}%)
+                            Progress: {comparisonsMade} of {maxComparisons} comparisons ({getProgress()}%)
                             <br />
-                            <span className="text-xs">Liczba porównań została dobrana automatycznie na podstawie {allEntries.length} utworów</span>
+                            <span className="text-xs">The number of comparisons was automatically determined based on {allEntries.length} songs</span>
                         </p>
                     </div>
                 </div>
             ) : isComplete ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
-                    <h2 className="text-xl font-semibold mb-4">Twój ranking</h2>
+                    <h2 className="text-xl font-semibold mb-4">Your ranking</h2>
 
                     <div className="space-y-4">
                         {rankedEntries.map((entry, index) => (
@@ -470,24 +511,13 @@ export default function RankingPage() {
                                     <h3 className="font-semibold">{entry.country}</h3>
                                     <p className="text-sm text-gray-600 dark:text-gray-400">{entry.artist} - {entry.title}</p>
                                 </div>
-                                <div className="text-gray-500 dark:text-gray-400 text-sm flex flex-col items-end">
-                                    <div>ELO: {Math.round(entry.score)}</div>
-                                    <div className={entry.score > INITIAL_RATING ? "text-green-600" : "text-red-600"}>
-                                        ({getRatingChange(entry)})
-                                    </div>
-                                </div>
                             </div>
                         ))}
-                    </div>
-
-                    <div className="mt-6 text-sm text-gray-600 dark:text-gray-400 text-center">
-                        Ranking został utworzony na podstawie {comparisonsMade} porównań z użyciem
-                        systemu rankingowego ELO z adaptacyjnym próbkowaniem
                     </div>
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md text-center">
-                    <p className="text-xl">Brak dostępnych danych do porównania.</p>
+                    <p className="text-xl">No data available for comparison.</p>
                 </div>
             )}
         </div>
